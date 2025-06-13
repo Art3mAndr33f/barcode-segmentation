@@ -1,0 +1,26 @@
+# Параметры обучения
+batch_size: 2
+learning_rate: 0.00025
+max_iterations: 300
+num_workers: 2
+use_cuda: true
+resume_training: false
+
+# Оптимизатор
+optimizer: "SGD"
+momentum: 0.9
+weight_decay: 0.0001
+
+# Scheduler
+lr_steps: [200, 250]
+lr_gamma: 0.1
+
+# Директории
+output_dir: "outputs"
+checkpoint_period: 50
+
+# Аугментации (если используете)
+augmentations:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation: false

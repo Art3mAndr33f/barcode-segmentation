@@ -1,31 +1,76 @@
-stages: 
-  prepare_data: 
-    cmd: python scripts/prepare_data.py 
-    deps: 
-    - data/raw 
-    - scripts/prepare_data.py 
-    outs: 
-    - data/processed 
+stages:
+  download_data:
+    cmd: python scripts/download_data.py
+    deps:
+      - scripts/download_data.py
+    outs:
+      - data/raw/
 
-  train: 
-    cmd: python scripts/train.py 
-    deps: 
-    - data/processed 
-    - src/ 
-    - configs/config.yaml 
-    params: 
-    - configs/config.yaml: 
-        - model 
-        - training 
-    outs: 
-    - models/best_model.pth 
-    metrics: 
-    - logs/metrics.json 
+  prepare_data:
+    cmd: python -m barcode_detection.data.dataset --stage prepare
+    deps:
+      - data/raw/
+      - barcode_detection/data/dataset.py
+    params:
+      - data.splits
+      - data.validation
+    outs:
+      - data/processed/train.json
+      - data/processed/val.json
+      - data/processed/test.json
 
-  evaluate: 
-    cmd: python scripts/evaluate.py 
-    deps: 
-    - models/best_model.pth 
-    - data/processed/test 
-    outs: 
-    - logs/evaluation_results.json 
+  train:
+    cmd: python -m barcode_detection.training.train
+    deps:
+      - data/processed/
+      - barcode_detection/
+      - configs/
+    params:
+      - training
+      - model
+      - data.dataloader
+    outs:
+      - models/best_model.pth
+    metrics:
+      - plots/training_metrics.json
+    plots:
+      - plots/loss_curve.png
+      - plots/map_curve.png
+
+  evaluate:
+    cmd: python -m barcode_detection.training.evaluate models/best_model.pth
+    deps:
+      - models/best_model.pth
+      - data/processed/test.json
+      - barcode_detection/training/evaluate.py
+    metrics:
+      - plots/evaluation_metrics.json
+    plots:
+      - plots/confusion_matrix.png
+      - plots/pr_curve.png
+
+  export_onnx:
+    cmd: python -m barcode_detection.export.onnx_export --model_path models/best_model.pth --output_path models/model.onnx
+    deps:
+      - models/best_model.pth
+      - barcode_detection/export/onnx_export.py
+    outs:
+      - models/model.onnx
+
+  convert_tensorrt:
+    cmd: bash convert_to_tensorrt.sh models/model.onnx models/model.trt
+    deps:
+      - models/model.onnx
+      - convert_to_tensorrt.sh
+    outs:
+      - models/model.trt
+
+  benchmark:
+    cmd: python -m barcode_detection.utils.benchmark
+    deps:
+      - models/best_model.pth
+      - models/model.onnx
+      - models/model.trt
+      - data/processed/test.json
+    metrics:
+      - plots/benchmark_results.json

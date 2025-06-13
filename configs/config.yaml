@@ -1,14 +1,20 @@
-defaults: 
-  - model: detectron2 
-  - data: coco 
-  - training: default 
-  - _self_ 
+defaults:
+  - model: detectron2
+  - data: coco
+  - train: default
+  - inference: default
+  - _self_
 
-project_name: barcode_detection 
-experiment_name: baseline 
-random_seed: 42 
+# MLflow настройки
+mlflow:
+  tracking_uri: "http://127.0.0.1:8080"
+  experiment_name: "barcode_detection"
 
-paths: 
-  data_dir: data 
-  model_dir: models 
-  log_dir: logs 
+# Общие настройки
+project_name: "barcode-detection"
+version: "1.0.0"
+
+# Логирование
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
