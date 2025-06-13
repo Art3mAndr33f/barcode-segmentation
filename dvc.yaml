@@ -1,0 +1,31 @@
+stages: 
+  prepare_data: 
+    cmd: python scripts/prepare_data.py 
+    deps: 
+    - data/raw 
+    - scripts/prepare_data.py 
+    outs: 
+    - data/processed 
+
+  train: 
+    cmd: python scripts/train.py 
+    deps: 
+    - data/processed 
+    - src/ 
+    - configs/config.yaml 
+    params: 
+    - configs/config.yaml: 
+        - model 
+        - training 
+    outs: 
+    - models/best_model.pth 
+    metrics: 
+    - logs/metrics.json 
+
+  evaluate: 
+    cmd: python scripts/evaluate.py 
+    deps: 
+    - models/best_model.pth 
+    - data/processed/test 
+    outs: 
+    - logs/evaluation_results.json 
