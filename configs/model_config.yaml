@@ -1,0 +1,105 @@
+# @package model
+
+# Конфигурация модели Detectron2 Mask R-CNN для сегментации штрих-кодов
+
+# Базовая модель из репозитория Detectron2
+model_name: "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+
+# Количество классов (1 - штрих-код)
+num_classes: 1
+
+# Порог уверенности для детекции
+score_thresh_test: 0.5
+
+# Порог NMS
+nms_thresh: 0.5
+
+# Параметры архитектуры
+backbone: "resnet50"
+fpn: true
+mask_branch: true
+roi_pooler_resolution: 14
+roi_pooler_sampling_ratio: 0
+mask_pooler_resolution: 14
+
+# Дополнительные параметры
+use_pretrained: true
+normalize_proposal_boxes: true
+freeze_backbone: false
+freeze_bn: false
+
+# Параметры для обучения модели с нуля
+# (используются только если не загружается предобученная модель)
+from_scratch:
+  # Параметры для инициализации весов
+  weight_init_method: "xavier"  # "xavier", "kaiming", "normal"
+  
+  # Параметры для Backbone
+  backbone_norm: "FrozenBN"  # "BN", "SyncBN", "FrozenBN"
+  
+  # Параметры для FPN
+  fpn_channels: 256
+  
+  # Параметры для RPN
+  rpn_head_conv_dims: [256]
+  rpn_positive_overlap: 0.7
+  rpn_negative_overlap: 0.3
+  rpn_batch_size_per_image: 256
+  rpn_positive_fraction: 0.5
+  rpn_pre_nms_topk_train: 2000
+  rpn_pre_nms_topk_test: 1000
+  rpn_post_nms_topk_train: 1000
+  rpn_post_nms_topk_test: 500
+  
+  # Параметры для ROI Heads
+  roi_batch_size_per_image: 512
+  roi_positive_fraction: 0.25
+  roi_score_thresh: 0.05
+  
+# Параметры для fine-tuning
+fine_tuning:
+  # Базовый LR для fine-tuning
+  base_lr: 0.001
+  
+  # Scheduler для fine-tuning
+  warmup_iters: 500
+  warmup_factor: 0.001
+  warmup_method: "linear"
+  
+  # Параметры обучения
+  max_iter: 10000
+  steps: [6000, 8000]
+  gamma: 0.1
+  
+  # Настройки весов для различных компонентов loss
+  roi_box_loss_weight: 1.0
+  roi_mask_loss_weight: 1.0
+  rpn_loss_weight: 1.0
+  
+# Параметры для инференса
+inference:
+  # Пост-обработка
+  detections_per_image: 100
+  min_mask_area: 1
+  
+  # Аугментации при инференсе (test-time augmentation)
+  test_time_augmentation: false
+  tta_transforms: ["HorizontalFlip"]
+  
+  # Параметры конвертации в ONNX/TensorRT
+  input_width: 640
+  input_height: 480
+  input_format: "RGB"  # "RGB" или "BGR"
+  opset_version: 12    # Версия ONNX opset
+  
+  # Оптимизации
+  dynamic_axes: true   # Динамические размеры при экспорте
+  simplify_onnx: true  # Упрощение ONNX модели
+  
+# Сохранение модели
+save:
+  format: "torch"  # "torch", "onnx", "tensorrt"
+  save_last: true  # Сохранять последнюю модель
+  save_best: true  # Сохранять лучшую модель
+  metric: "mAP"    # Метрика для определения лучшей модели
+  mode: "max"      # Режим сравнения ("max" или "min")

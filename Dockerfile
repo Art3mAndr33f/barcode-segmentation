@@ -1,61 +1,53 @@
-# Базовый образ с CUDA поддержкой
-FROM nvidia/cuda:11.8-devel-ubuntu20.04
+FROM python:3.8-slim
 
-# Устанавливаем переменные окружения
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# Обновляем систему и устанавливаем зависимости
+# Установка системных зависимостей для OpenCV, Detectron2 и компиляции
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-dev \
+    build-essential \
+    curl \
     git \
     wget \
-    curl \
-    build-essential \
     cmake \
     libopencv-dev \
-    libglib2.0-0 \
+    python3-opencv \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем Poetry
-RUN curl -sSL https://install.python-poetry.org | python3 -
-ENV PATH="/root/.local/bin:$PATH"
+# Установка Poetry
+RUN pip install --no-cache-dir poetry==1.5.1
 
-# Создаем рабочую директорию
+# Настройка Poetry
+RUN poetry config virtualenvs.create false
+
+# Установка рабочей директории
 WORKDIR /app
 
-# Копируем файлы зависимостей
-COPY pyproject.toml poetry.lock ./
+# Копирование файлов зависимостей
+COPY pyproject.toml poetry.lock* ./
 
-# Настраиваем Poetry
-RUN poetry config virtualenvs.create false
-RUN poetry install --no-dev
+# Установка зависимостей проекта
+RUN poetry install --no-dev --no-root --no-interaction
 
-# Копируем исходный код
+# Установка специальных зависимостей 
+# Detectron2 для CPU (можно изменить на GPU, если нужно)
+RUN pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cpu/torch1.10/index.html
+
+# Копирование файлов проекта
 COPY . .
 
-# Устанавливаем Detectron2
-RUN pip install 'git+https://github.com/facebookresearch/detectron2.git'
+# Устанавливаем пакет проекта
+RUN pip install -e .
 
-# Создаем необходимые директории
-RUN mkdir -p data/raw data/processed models plots
+# Установка переменных окружения
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
-# Устанавливаем права доступа
-RUN chmod +x commands.py
+# Открываем порт для сервера FastAPI
+EXPOSE 8000
 
-# Экспонируем порты для MLflow и других сервисов
-EXPOSE 8080 8000 8001 8002
+# Точка входа - запуск inference сервера
+ENTRYPOINT ["python", "-m", "barcode_segmentation.deployment.inference_server"]
 
-# Устанавливаем переменные окружения для MLOps
-ENV MLFLOW_TRACKING_URI=http://localhost:8080
-ENV HYDRA_FULL_ERROR=1
-
-# Команда по умолчанию
-CMD ["python3", "commands.py", "--help"]
+# Команда по умолчанию - параметры запуска сервера
+CMD ["--host", "0.0.0.0", "--port", "8000"]

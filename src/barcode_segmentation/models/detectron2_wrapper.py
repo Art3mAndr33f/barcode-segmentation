@@ -1,211 +1,367 @@
+#!/usr/bin/env python3
 """
-Обертка для интеграции Detectron2 с PyTorch Lightning.
+Обертка над Detectron2 для задачи сегментации штрих-кодов.
+
+Предоставляет интерфейс для использования Detectron2 в проекте, 
+включая конфигурацию, загрузку предобученных моделей и инференс.
 """
 
-from typing import Dict, List, Optional, Tuple
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import cv2
+import numpy as np
 import torch
-import torch.nn as nn
-from detectron2.config import get_cfg
-from detectron2.data import build_detection_test_loader, build_detection_train_loader
-from detectron2.engine import DefaultTrainer
-from detectron2.evaluation import COCOEvaluator, inference_on_dataset
-from detectron2.modeling import build_model
-from detectron2.utils.logger import setup_logger
-from detectron2 import model_zoo
 from omegaconf import DictConfig
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class Detectron2Wrapper(nn.Module):
-    """
-    Обертка для модели Detectron2, интегрированная с PyTorch Lightning.
-    """
 
+class Detectron2Wrapper:
+    """
+    Обертка над Detectron2 для задачи сегментации штрих-кодов.
+    
+    Инкапсулирует работу с Detectron2, обеспечивая:
+    - Конфигурацию модели
+    - Загрузку предобученных весов
+    - Преобразование данных между PyTorch и Detectron2
+    - Предсказание и обучение
+    
+    Attributes:
+        model: Модель Detectron2
+        cfg: Конфигурация Detectron2
+    """
+    
     def __init__(self, config: DictConfig):
         """
         Инициализация обертки Detectron2.
-
+        
         Args:
             config: Конфигурация модели
         """
-        super().__init__()
         self.config = config
-        self.cfg = self._setup_detectron2_config()
-        self.model = build_model(self.cfg)
+        self.model = None
+        self.cfg = None
+        
+        # Инициализируем модель
+        self._initialize_model()
+        
+        logger.info(f"Инициализирована обертка Detectron2 для {config.model_name}")
+    
+    def _initialize_model(self) -> None:
+        """Инициализация модели Detectron2."""
+        try:
+            # Импортируем здесь, так как Detectron2 может быть недоступен
+            from detectron2 import model_zoo
+            from detectron2.config import get_cfg
+            from detectron2.engine import DefaultPredictor
+            from detectron2.modeling import build_model
+            
+            # Создаем конфигурацию Detectron2
+            cfg = get_cfg()
+            cfg.merge_from_file(model_zoo.get_config_file(self.config.model_name))
+            
+            # Настраиваем модель
+            cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(self.config.model_name)
+            cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.config.num_classes
+            cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = self.config.score_thresh_test
+            cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = self.config.nms_thresh
+            
+            # Для обучения
+            if hasattr(self.config, "device") and self.config.device:
+                cfg.MODEL.DEVICE = self.config.device
+            
+            if hasattr(self.config, "batch_size") and self.config.batch_size:
+                cfg.SOLVER.IMS_PER_BATCH = self.config.batch_size
+            
+            if hasattr(self.config, "base_lr") and self.config.base_lr:
+                cfg.SOLVER.BASE_LR = self.config.base_lr
+            
+            if hasattr(self.config, "max_iter") and self.config.max_iter:
+                cfg.SOLVER.MAX_ITER = self.config.max_iter
+            
+            # Сохраняем конфигурацию
+            self.cfg = cfg
+            
+            # Создаем модель
+            self.model = build_model(cfg)
+            self.model.eval()
+            
+            logger.info(f"✓ Detectron2 модель инициализирована: {self.config.model_name}")
+            
+        except ImportError:
+            logger.error("❌ Не удалось импортировать Detectron2.")
+            logger.error("Пожалуйста, установите его: pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cpu/torch1.10/index.html")
+            raise
+    
+    def forward(self, images: List[torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+        """
+        Forward pass модели.
+        
+        Args:
+            images: Список изображений (tensor)
+            
+        Returns:
+            Список предсказаний
+        """
+        return self.forward_inference(images)
+    
+    def forward_train(
+        self, images: List[torch.Tensor], targets: List[Dict[str, Any]]
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass в режиме обучения.
+        
+        Args:
+            images: Список изображений
+            targets: Список целей
+            
+        Returns:
+            Словарь с лоссами
+        """
+        # Конвертируем данные в формат Detectron2
+        detectron2_inputs = self._prepare_detectron2_inputs(images, targets)
+        
+        # Запускаем forward pass с подсчетом градиентов
         self.model.train()
-
-        # Настройка логгера
-        setup_logger()
-
-    def _setup_detectron2_config(self):
+        with torch.enable_grad():
+            loss_dict = self.model(detectron2_inputs)
+        
+        # Возвращаем лоссы
+        return {k: v.mean() for k, v in loss_dict.items()}
+    
+    def forward_inference(
+        self, images: List[torch.Tensor]
+    ) -> List[Dict[str, Any]]:
         """
-        Настройка конфигурации Detectron2.
-
-        Returns:
-            Конфигурация Detectron2
-        """
-        cfg = get_cfg()
-
-        # Загружаем базовую конфигурацию
-        config_file = self.config.detectron2.config_file
-        cfg.merge_from_file(model_zoo.get_config_file(config_file))
-
-        # Настройки датасета
-        cfg.DATASETS.TRAIN = ("barcode_train",)
-        cfg.DATASETS.TEST = ("barcode_val",)
-
-        # Настройки DataLoader
-        cfg.DATALOADER.NUM_WORKERS = self.config.get("num_workers", 2)
-
-        # Веса модели
-        cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(config_file)
-
-        # Параметры модели
-        cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.config.detectron2.num_classes
-        cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = self.config.detectron2.roi_heads.batch_size_per_image
-        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = self.config.detectron2.roi_heads.score_thresh_test
-
-        # Параметры обучения (будут переопределены в Lightning)
-        cfg.SOLVER.IMS_PER_BATCH = 2
-        cfg.SOLVER.BASE_LR = 0.00025
-        cfg.SOLVER.MAX_ITER = 1000
-
-        # Устройство
-        cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-        return cfg
-
-    def forward(self, batched_inputs: List[Dict[str, torch.Tensor]]):
-        """
-        Прямой проход модели.
-
+        Forward pass в режиме инференса.
+        
         Args:
-            batched_inputs: Батч входных данных
-
+            images: Список изображений
+            
         Returns:
-            Результат модели
+            Список предсказаний
         """
-        return self.model(batched_inputs)
-
-    def training_step(self, batched_inputs: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
-        """
-        Шаг тренировки.
-
-        Args:
-            batched_inputs: Батч входных данных
-
-        Returns:
-            Лосс для оптимизации
-        """
-        self.model.train()
-        losses = self.model(batched_inputs)
-
-        # Суммируем все лоссы
-        total_loss = sum(losses.values())
-
-        return total_loss, losses
-
-    def validation_step(self, batched_inputs: List[Dict[str, torch.Tensor]]):
-        """
-        Шаг валидации.
-
-        Args:
-            batched_inputs: Батч входных данных
-
-        Returns:
-            Результат предсказания
-        """
+        # Конвертируем данные в формат Detectron2
+        detectron2_inputs = self._prepare_detectron2_inputs(images)
+        
+        # Запускаем inference без подсчета градиентов
         self.model.eval()
         with torch.no_grad():
-            outputs = self.model(batched_inputs)
-        return outputs
-
-    def predict(self, batched_inputs: List[Dict[str, torch.Tensor]]):
+            outputs = self.model(detectron2_inputs)
+        
+        # Преобразуем выходы Detectron2 в понятный формат
+        predictions = self._process_detectron2_outputs(outputs)
+        
+        return predictions
+    
+    def _prepare_detectron2_inputs(
+        self, 
+        images: List[torch.Tensor],
+        targets: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Предсказание модели.
-
+        Подготовка входных данных для Detectron2.
+        
         Args:
-            batched_inputs: Батч входных данных
-
+            images: Список изображений
+            targets: Список целей (опционально)
+            
         Returns:
-            Результат предсказания
+            Список входных данных для Detectron2
         """
-        self.model.eval()
-        with torch.no_grad():
-            outputs = self.model(batched_inputs)
-        return outputs
-
-    def get_model_config(self):
+        from detectron2.structures import Boxes, Instances, BitMasks
+        
+        detectron2_inputs = []
+        
+        for i, image in enumerate(images):
+            # Преобразуем формат и размерность
+            if image.shape[0] == 3:  # (C, H, W) -> (H, W, C)
+                image_np = image.permute(1, 2, 0).cpu().numpy()
+            else:
+                image_np = image.cpu().numpy()
+            
+            # Создаем входной словарь
+            input_dict = {
+                "image": torch.as_tensor(image_np, device=self.model.device).permute(2, 0, 1),
+                "height": image_np.shape[0],
+                "width": image_np.shape[1]
+            }
+            
+            # Если есть цели, добавляем их
+            if targets is not None and i < len(targets):
+                target = targets[i]
+                
+                # Создаем instances для хранения аннотаций
+                instances = Instances((image_np.shape[0], image_np.shape[1]))
+                
+                # Добавляем боксы
+                if "boxes" in target:
+                    instances.gt_boxes = Boxes(target["boxes"])
+                
+                # Добавляем маски
+                if "masks" in target:
+                    instances.gt_masks = BitMasks(target["masks"])
+                
+                # Добавляем классы
+                if "classes" in target:
+                    instances.gt_classes = target["classes"]
+                
+                input_dict["instances"] = instances
+            
+            detectron2_inputs.append(input_dict)
+        
+        return detectron2_inputs
+    
+    def _process_detectron2_outputs(
+        self, outputs: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
-        Возвращает конфигурацию модели Detectron2.
-
-        Returns:
-            Конфигурация Detectron2
-        """
-        return self.cfg
-
-    def get_detectron2_model(self):
-        """
-        Возвращает модель Detectron2.
-
-        Returns:
-            Модель Detectron2
-        """
-        return self.model
-
-
-class Detectron2Trainer(DefaultTrainer):
-    """
-    Кастомный тренер Detectron2 для интеграции с Lightning.
-    """
-
-    def __init__(self, cfg, lightning_module=None):
-        """
-        Инициализация тренера.
-
+        Обработка выходных данных Detectron2.
+        
         Args:
-            cfg: Конфигурация Detectron2
-            lightning_module: Lightning модуль (опционально)
-        """
-        super().__init__(cfg)
-        self.lightning_module = lightning_module
-
-    @classmethod
-    def build_evaluator(cls, cfg, dataset_name, output_folder=None):
-        """
-        Создает оценщик для валидации.
-
-        Args:
-            cfg: Конфигурация
-            dataset_name: Имя датасета
-            output_folder: Папка для вывода
-
+            outputs: Выходные данные Detectron2
+            
         Returns:
-            Оценщик COCO
+            Список предсказаний в понятном формате
         """
-        if output_folder is None:
-            output_folder = "./output/"
-
-        return COCOEvaluator(
-            dataset_name, 
-            cfg, 
-            False, 
-            output_dir=output_folder
-        )
-
-    def run_evaluation(self, dataset_name: str = "barcode_val") -> Dict:
-        """
-        Запускает оценку модели на датасете.
-
-        Args:
-            dataset_name: Имя датасета для оценки
-
-        Returns:
-            Результаты оценки
-        """
-        evaluator = self.build_evaluator(self.cfg, dataset_name)
-        val_loader = build_detection_test_loader(self.cfg, dataset_name)
-
-        results = inference_on_dataset(self.model, val_loader, evaluator)
-
+        results = []
+        
+        for output in outputs:
+            # Получаем instances
+            instances = output["instances"]
+            
+            # Получаем данные с устройства
+            boxes = instances.pred_boxes.tensor.cpu().numpy()
+            scores = instances.scores.cpu().numpy()
+            classes = instances.pred_classes.cpu().numpy()
+            
+            # Получаем маски, если есть
+            if instances.has("pred_masks"):
+                masks = instances.pred_masks.cpu().numpy()
+            else:
+                masks = None
+            
+            # Создаем результаты для каждого предсказания
+            result = []
+            for i in range(len(scores)):
+                pred = {
+                    "bbox": boxes[i].tolist(),
+                    "confidence": float(scores[i]),
+                    "class_id": int(classes[i]),
+                }
+                
+                # Добавляем маску, если есть
+                if masks is not None:
+                    mask_data = {
+                        "binary_mask": masks[i].astype(bool),
+                        "polygon": self._mask_to_polygon(masks[i]),
+                        "area": float(np.sum(masks[i]))
+                    }
+                    pred["mask"] = mask_data
+                
+                result.append(pred)
+            
+            results.append(result)
+        
         return results
+    
+    def _mask_to_polygon(self, mask: np.ndarray) -> List[List[float]]:
+        """
+        Преобразование маски в полигон.
+        
+        Args:
+            mask: Бинарная маска
+            
+        Returns:
+            Полигон в формате [[x1, y1], [x2, y2], ...]
+        """
+        # Преобразуем маску в 8-битное изображение
+        mask_8bit = (mask * 255).astype(np.uint8)
+        
+        # Находим контуры
+        contours, _ = cv2.findContours(
+            mask_8bit, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        
+        # Берем самый большой контур
+        if not contours:
+            return []
+            
+        contour = max(contours, key=cv2.contourArea)
+        
+        # Преобразуем в список точек
+        return [point[0].tolist() for point in contour]
+    
+    def state_dict(self) -> Dict[str, Any]:
+        """
+        Получение state_dict модели.
+        
+        Returns:
+            State dict модели
+        """
+        return self.model.state_dict()
+    
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        """
+        Загрузка state_dict модели.
+        
+        Args:
+            state_dict: State dict для загрузки
+        """
+        self.model.load_state_dict(state_dict)
+    
+    def save_model(self, path: str) -> None:
+        """
+        Сохранение модели.
+        
+        Args:
+            path: Путь для сохранения
+        """
+        # Создаем директорию, если нужно
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # Сохраняем модель
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'config': self.config,
+        }, path)
+        
+        logger.info(f"Модель сохранена: {path}")
+    
+    def load_model(self, path: str) -> None:
+        """
+        Загрузка модели.
+        
+        Args:
+            path: Путь к модели
+        """
+        # Загружаем модель
+        checkpoint = torch.load(path, map_location=self.model.device)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        
+        logger.info(f"Модель загружена: {path}")
+
+
+def main() -> None:
+    """Основная функция для тестирования модуля."""
+    # Создаем тестовую конфигурацию
+    from omegaconf import OmegaConf
+    
+    config = OmegaConf.create({
+        "model_name": "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml",
+        "num_classes": 1,
+        "score_thresh_test": 0.5,
+        "nms_thresh": 0.5
+    })
+    
+    # Создаем модель
+    model = Detectron2Wrapper(config)
+    print(f"Модель создана: {model}")
+
+
+if __name__ == "__main__":
+    main()

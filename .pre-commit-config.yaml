@@ -1,37 +1,282 @@
+# Pre-commit hooks для автоматической проверки качества кода
+# См. https://pre-commit.com для дополнительной информации
+
+default_language_version:
+  python: python3.8
+
 repos:
+  # Базовые проверки от pre-commit
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
+      # Убираем trailing whitespace
       - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      
+      # Проверяем окончание файлов
       - id: end-of-file-fixer
+      
+      # Валидация YAML файлов
       - id: check-yaml
+        args: [--unsafe]  # Для YAML с тегами (например, Hydra)
+      
+      # Проверка размера файлов
       - id: check-added-large-files
         args: ['--maxkb=1000']
+        exclude: |
+          (?x)^(
+              \.git/.*|
+              .*\.pt|
+              .*\.pth|
+              .*\.onnx|
+              .*\.trt|
+              data/.*
+          )$
+      
+      # Валидация JSON
       - id: check-json
+      
+      # Проверка merge конфликтов
       - id: check-merge-conflict
+      
+      # Проверка docstring на первом месте
       - id: check-docstring-first
+      
+      # Удаление debug statements
       - id: debug-statements
+      
+      # Проверка названий файлов
+      - id: check-case-conflict
+      
+      # Проверка исполняемых файлов
+      - id: check-executables-have-shebangs
+      
+      # Проверка symlinks
+      - id: check-symlinks
+      
+      # Проверка TOML файлов
+      - id: check-toml
 
+  # Black - форматирование Python кода
   - repo: https://github.com/psf/black
     rev: 23.7.0
     hooks:
       - id: black
-        language_version: python3
+        language_version: python3.8
+        args: [--line-length=88, --target-version=py38]
 
+  # isort - сортировка импортов
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
       - id: isort
-        args: ["--profile", "black"]
+        args: ["--profile", "black", "--line-length=88"]
 
+  # flake8 - линтер Python
   - repo: https://github.com/pycqa/flake8
     rev: 6.0.0
     hooks:
       - id: flake8
-        args: [--max-line-length=88, --extend-ignore=E203,W503]
+        args: [
+          --max-line-length=88,
+          --extend-ignore=E203,W503,E501,
+          --exclude=.git,__pycache__,build,dist,.venv,.tox
+        ]
+        additional_dependencies: [
+          flake8-docstrings,
+          flake8-import-order,
+          flake8-bugbear,
+          flake8-comprehensions,
+          flake8-simplify
+        ]
 
+  # mypy - статическая типизация
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.5.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [
+          types-PyYAML,
+          types-requests,
+          types-setuptools
+        ]
+        args: [
+          --ignore-missing-imports,
+          --warn-unused-ignores,
+          --warn-redundant-casts,
+          --strict-optional,
+          --disallow-untyped-defs
+        ]
+        exclude: |
+          (?x)^(
+              tests/.*|
+              setup.py|
+              docs/.*
+          )$
+
+  # pyupgrade - модернизация Python синтаксиса
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.10.1
+    hooks:
+      - id: pyupgrade
+        args: [--py38-plus]
+
+  # bandit - проверка безопасности
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: [-r, -x, tests/]
+
+  # safety - проверка уязвимостей в зависимостях
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.3.2
+    hooks:
+      - id: python-safety-dependencies-check
+        files: pyproject.toml
+
+  # pydocstyle - проверка docstrings
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: [--convention=google]
+        exclude: |
+          (?x)^(
+              tests/.*|
+              setup.py
+          )$
+
+  # Prettier - форматирование YAML, JSON, Markdown
   - repo: https://github.com/pre-commit/mirrors-prettier
     rev: v3.0.0
     hooks:
       - id: prettier
-        types_or: [yaml, markdown, json]
+        types_or: [yaml, json, markdown]
+        exclude: |
+          (?x)^(
+              \.github/.*\.yml|
+              \.pre-commit-config\.yaml
+          )$
+
+  # yamllint - линтер для YAML
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.32.0
+    hooks:
+      - id: yamllint
+        args: [-c=.yamllint.yml]
+
+  # Проверка качества Dockerfile
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+
+  # Проверка shell скриптов
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.5
+    hooks:
+      - id: shellcheck
+
+  # Проверка secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)^(
+              \.git/.*|
+              .*\.ipynb|
+              poetry\.lock
+          )$
+
+  # Локальные hooks для проекта
+  - repo: local
+    hooks:
+      # Проверка imports в __init__.py файлах
+      - id: check-init-imports
+        name: Check __init__.py imports
+        entry: python -c "
+          import ast
+          import sys
+          for file in sys.argv[1:]:
+              with open(file) as f:
+                  try:
+                      ast.parse(f.read())
+                  except SyntaxError as e:
+                      print(f'Syntax error in {file}: {e}')
+                      sys.exit(1)
+          "
+        language: system
+        files: __init__\.py$
+
+      # Проверка структуры тестов
+      - id: check-test-structure
+        name: Check test file structure
+        entry: python -c "
+          import sys
+          import re
+          for file in sys.argv[1:]:
+              with open(file) as f:
+                  content = f.read()
+                  if not re.search(r'class Test\w+|def test_', content):
+                      print(f'No test classes or functions found in {file}')
+                      sys.exit(1)
+          "
+        language: system
+        files: ^tests/test_.*\.py$
+
+      # Проверка docstrings в основных модулях
+      - id: check-docstrings
+        name: Check module docstrings
+        entry: python -c "
+          import ast
+          import sys
+          for file in sys.argv[1:]:
+              with open(file) as f:
+                  tree = ast.parse(f.read())
+                  if not ast.get_docstring(tree):
+                      print(f'Missing module docstring in {file}')
+                      sys.exit(1)
+          "
+        language: system
+        files: ^src/.*\.py$
+        exclude: __init__\.py$
+
+      # Проверка конфигурационных файлов Hydra
+      - id: validate-hydra-configs
+        name: Validate Hydra configs
+        entry: python -c "
+          import sys
+          from omegaconf import OmegaConf
+          for file in sys.argv[1:]:
+              try:
+                  OmegaConf.load(file)
+              except Exception as e:
+                  print(f'Invalid Hydra config {file}: {e}')
+                  sys.exit(1)
+          "
+        language: system
+        files: ^configs/.*\.yaml$
+
+      # Проверка requirements в pyproject.toml
+      - id: check-poetry-dependencies
+        name: Check Poetry dependencies
+        entry: poetry check
+        language: system
+        files: pyproject\.toml$
+        pass_filenames: false
+
+# Дополнительные CI конфигурации
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: [mypy, bandit, safety]  # Пропускаем в CI, так как требуют дополнительной настройки
+  submodules: false

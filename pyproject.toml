@@ -1,10 +1,13 @@
 [tool.poetry]
 name = "barcode-segmentation"
 version = "0.1.0"
-description = "MLOps проект для сегментации штрих-кодов с использованием Detectron2"
+description = "MLOps проект для автоматической сегментации штрих-кодов с использованием Detectron2"
 authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
 readme = "README.md"
 packages = [{include = "barcode_segmentation", from = "src"}]
+repository = "https://github.com/Art3mAndr33f/barcode_segmentation"
+keywords = ["computer-vision", "segmentation", "barcode", "mlops", "pytorch"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -18,6 +21,7 @@ opencv-python = "^4.8.0"
 numpy = "^1.24.0"
 pandas = "^2.0.0"
 matplotlib = "^3.7.0"
+seaborn = "^0.12.0"
 scikit-learn = "^1.3.0"
 onnx = "^1.14.0"
 onnxruntime = "^1.15.0"
@@ -25,27 +29,40 @@ fire = "^0.5.0"
 pathlib = "^1.0.1"
 pyyaml = "^6.0"
 omegaconf = "^2.3.0"
+fastapi = "^0.100.0"
+uvicorn = "^0.23.0"
+python-multipart = "^0.0.6"
+pillow = "^10.0.0"
+tqdm = "^4.65.0"
+wandb = {version = "^0.15.0", optional = true}
 tensorrt = {version = "^8.6.0", optional = true}
 tritonclient = {version = "^2.34.0", optional = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
 pytest-cov = "^4.1.0"
+pytest-mock = "^3.11.0"
 black = "^23.7.0"
 isort = "^5.12.0"
-flake8 = "*"
+flake8 = "^6.0.0"
+mypy = "^1.5.0"
 pre-commit = "^3.3.0"
 jupyter = "^1.0.0"
 ipykernel = "^6.25.0"
+jupyterlab = "^4.0.0"
+nbconvert = "^7.0.0"
 
 [tool.poetry.extras]
+wandb = ["wandb"]
 tensorrt = ["tensorrt"]
 triton = ["tritonclient"]
+all = ["wandb", "tensorrt", "tritonclient"]
 
 [tool.poetry.scripts]
 barcode-train = "barcode_segmentation.training.trainer:main"
 barcode-infer = "barcode_segmentation.inference.predictor:main"
 barcode-convert = "barcode_segmentation.deployment.onnx_converter:main"
+barcode-server = "barcode_segmentation.deployment.inference_server:main"
 
 [build-system]
 requires = ["poetry-core"]
@@ -53,16 +70,87 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py38', 'py39', 'py310', 'py311']
 include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
 
 [tool.isort]
 profile = "black"
 multi_line_output = 3
 line_length = 88
 known_first_party = ["barcode_segmentation"]
+known_third_party = ["torch", "torchvision", "lightning", "hydra", "mlflow", "dvc"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.flake8]
 max-line-length = 88
-extend-ignore = ["E203", "W503"]
-exclude = [".git", "__pycache__", "build", "dist"]
+extend-ignore = ["E203", "W503", "E501"]
+exclude = [".git", "__pycache__", "build", "dist", ".venv", ".tox"]
+per-file-ignores = [
+    "__init__.py:F401",
+]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/barcode_segmentation",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--strict-markers",
+    "--disable-warnings",
+]
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["src/barcode_segmentation"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+]

@@ -1,0 +1,198 @@
+# DVC Pipeline Configuration
+# Определяет этапы обработки данных и обучения модели
+
+stages:
+  # Этап предобработки данных
+  data_preprocessing:
+    cmd: python -m barcode_segmentation.data.preprocessing
+    deps:
+      - data/raw
+      - src/barcode_segmentation/data/preprocessing.py
+      - configs/data/preprocessing.yaml
+    outs:
+      - data/processed/train_annotations.json
+      - data/processed/val_annotations.json
+      - data/processed/train_images/
+      - data/processed/val_images/
+    params:
+      - preprocessing.train_split
+      - preprocessing.val_split
+      - preprocessing.augmentation
+    metrics:
+      - data/processed/preprocessing_metrics.json:
+          cache: false
+
+  # Этап валидации данных
+  data_validation:
+    cmd: python -m barcode_segmentation.data.validation
+    deps:
+      - data/processed/train_annotations.json
+      - data/processed/val_annotations.json
+      - data/processed/train_images/
+      - data/processed/val_images/
+      - src/barcode_segmentation/data/validation.py
+    outs:
+      - data/processed/validation_report.json
+    metrics:
+      - data/processed/data_quality_metrics.json:
+          cache: false
+
+  # Этап обучения модели
+  train_model:
+    cmd: python -m barcode_segmentation.training.trainer
+    deps:
+      - data/processed/train_annotations.json
+      - data/processed/val_annotations.json
+      - data/processed/train_images/
+      - data/processed/val_images/
+      - src/barcode_segmentation/models/
+      - src/barcode_segmentation/training/
+      - configs/train.yaml
+      - configs/model/detectron2_maskrcnn.yaml
+    outs:
+      - models/best_model.pt
+      - models/final_model.pt
+      - models/checkpoints/
+    params:
+      - training.max_epochs
+      - training.learning_rate
+      - training.batch_size
+      - model.num_classes
+      - model.score_thresh_test
+    metrics:
+      - models/training_metrics.json:
+          cache: false
+    plots:
+      - plots/training_curves.png:
+          cache: false
+      - plots/validation_curves.png:
+          cache: false
+
+  # Этап оценки модели
+  evaluate_model:
+    cmd: python -m barcode_segmentation.training.evaluator
+    deps:
+      - models/best_model.pt
+      - data/processed/val_annotations.json
+      - data/processed/val_images/
+      - src/barcode_segmentation/training/evaluator.py
+      - src/barcode_segmentation/utils/metrics.py
+    outs:
+      - models/evaluation_results.json
+      - plots/confusion_matrix.png
+      - plots/precision_recall_curve.png
+    metrics:
+      - models/evaluation_metrics.json:
+          cache: false
+    plots:
+      - plots/evaluation_plots/:
+          cache: false
+
+  # Этап конвертации модели в ONNX
+  convert_to_onnx:
+    cmd: python -m barcode_segmentation.deployment.onnx_converter
+    deps:
+      - models/best_model.pt
+      - src/barcode_segmentation/deployment/onnx_converter.py
+      - configs/deployment.yaml
+    outs:
+      - models/model.onnx
+      - models/onnx_metadata.json
+    params:
+      - deployment.onnx.opset_version
+      - deployment.onnx.input_width
+      - deployment.onnx.input_height
+
+  # Этап оптимизации для TensorRT (опционально)
+  convert_to_tensorrt:
+    cmd: python -m barcode_segmentation.deployment.tensorrt_converter
+    deps:
+      - models/model.onnx
+      - src/barcode_segmentation/deployment/tensorrt_converter.py
+      - configs/deployment.yaml
+    outs:
+      - models/model.trt
+      - models/tensorrt_metadata.json
+    params:
+      - deployment.tensorrt.max_batch_size
+      - deployment.tensorrt.workspace_size
+
+  # Этап подготовки Docker образа
+  build_docker:
+    cmd: docker build -t barcode-segmentation:${DVC_EXP_NAME:-latest} .
+    deps:
+      - Dockerfile
+      - models/model.onnx
+      - src/
+      - pyproject.toml
+    outs:
+      - docker_build.log
+
+  # Этап тестирования API
+  test_api:
+    cmd: python -m barcode_segmentation.deployment.test_api
+    deps:
+      - models/model.onnx
+      - src/barcode_segmentation/deployment/inference_server.py
+      - tests/test_api.py
+    outs:
+      - tests/api_test_results.json
+    metrics:
+      - tests/api_performance_metrics.json:
+          cache: false
+
+# Параметры по умолчанию для всех stages
+params:
+  # Основные параметры проекта
+  - project.name
+  - project.version
+  - seed
+
+  # Параметры данных
+  - data_dir
+  - output_dir
+  - model_dir
+
+# Plots конфигурация
+plots:
+  - plots/metrics.json:
+      template: linear
+      x: epoch
+      y:
+        - train_loss
+        - val_loss
+      title: "Training and Validation Loss"
+      x_label: "Epoch"
+      y_label: "Loss"
+
+  - plots/metrics.json:
+      template: linear
+      x: epoch
+      y:
+        - train_iou
+        - val_iou
+      title: "Training and Validation IoU"
+      x_label: "Epoch"
+      y_label: "IoU"
+
+# Artifacts для хранения в удаленном хранилище
+artifacts:
+  model:
+    path: models/best_model.pt
+    type: model
+    desc: "Лучшая обученная модель Mask R-CNN для сегментации штрих-кодов"
+    
+  onnx_model:
+    path: models/model.onnx
+    type: model
+    desc: "Модель в формате ONNX для production деплоймента"
+    
+  tensorrt_model:
+    path: models/model.trt
+    type: model
+    desc: "Оптимизированная модель TensorRT для NVIDIA GPU"
+    
+  training_data:
+    path: data/processed/
+    type: dataset
+    desc: "Предобработанные данные для обучения"
