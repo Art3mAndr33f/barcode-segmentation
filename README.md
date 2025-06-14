@@ -4,7 +4,6 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![Lightning](https://img.shields.io/badge/Lightning-2.0+-792ee5.svg)](https://lightning.ai/)
 [![Detectron2](https://img.shields.io/badge/Detectron2-0.6+-006600.svg)](https://github.com/facebookresearch/detectron2)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 Полнофункциональный MLOps проект для автоматической сегментации штрих-кодов с использованием современного стека технологий машинного обучения.
 
