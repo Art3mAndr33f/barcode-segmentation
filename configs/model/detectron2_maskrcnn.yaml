@@ -1,0 +1,18 @@
+# Конфигурация модели Detectron2
+model:
+  architecture: "mask_rcnn"
+  backbone: "resnet50_fpn"
+
+detectron2:
+  config_file: "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+  num_classes: 1
+  weights: "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+
+roi_heads:
+  batch_size_per_image: 128
+  score_thresh_test: 0.7
+  nms_thresh_test: 0.5
+
+anchor_generator:
+  sizes: [[32], [64], [128], [256], [512]]
+  aspect_ratios: [[0.5, 1.0, 2.0]]

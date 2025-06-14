@@ -1,0 +1,12 @@
+defaults:
+  - /config
+  - _self_
+
+inference:
+  model_path: "${model_dir}/best_model.ckpt"
+  input_dir: "data/test"
+  output_dir: "outputs/predictions"
+  batch_size: 1
+  confidence_threshold: 0.7
+  save_visualizations: true
+  device: "auto"

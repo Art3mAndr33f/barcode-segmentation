@@ -175,11 +175,3 @@ docker build -t barcode-segmentation .
 # Запуск контейнера
 docker run -p 8000:8000 barcode-segmentation
 ```
-
-## 🤝 Контрибьюция
-
-1. Форкните репозиторий
-2. Создайте feature ветку: `git checkout -b feature/amazing-feature`
-3. Закоммитьте изменения: `git commit -m 'Add amazing feature'`
-4. Запушьте в ветку: `git push origin feature/amazing-feature`
-5. Откройте Pull Request

@@ -1,20 +1,38 @@
 defaults:
-  - model: detectron2
-  - data: coco
-  - train: default
-  - inference: default
+  - data: preprocessing
+  - model: detectron2_maskrcnn
+  - training: optimizer
+  - training/scheduler: scheduler
   - _self_
+
+project:
+  name: "barcode_segmentation"
+  version: "0.1.0"
+  description: "MLOps проект для сегментации штрих-кодов"
+
+# Пути к данным
+data_dir: "data"
+output_dir: "outputs"
+model_dir: "models"
+plots_dir: "plots"
 
 # MLflow настройки
 mlflow:
   tracking_uri: "http://127.0.0.1:8080"
-  experiment_name: "barcode_detection"
-
-# Общие настройки
-project_name: "barcode-detection"
-version: "1.0.0"
+  experiment_name: "barcode_segmentation"
 
 # Логирование
 logging:
-  level: INFO
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  level: "INFO"
+  log_dir: "${output_dir}/logs"
+
+# Воспроизводимость
+seed: 42
+
+# Hydra настройки
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

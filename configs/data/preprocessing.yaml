@@ -1,0 +1,25 @@
+# Параметры предобработки данных
+dataset:
+  name: "barcode_dataset"
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+image:
+  input_size: [640, 640]
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+augmentation:
+  enabled: true
+  horizontal_flip: 0.5
+  vertical_flip: 0.0
+  rotation: 15
+  brightness: 0.2
+  contrast: 0.2
+
+data_loading:
+  batch_size: 4
+  num_workers: 4
+  pin_memory: true
+  drop_last: false
